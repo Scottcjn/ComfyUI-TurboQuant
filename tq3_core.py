@@ -49,7 +49,8 @@ def _fwht_inplace(x: torch.Tensor) -> torch.Tensor:
     Normalized by 1/sqrt(N).
     """
     n = x.shape[-1]
-    assert n == TQ3_BLOCK, f"FWHT requires dim={TQ3_BLOCK}, got {n}"
+    if n != TQ3_BLOCK:
+        raise ValueError(f"FWHT requires dim={TQ3_BLOCK}, got {n}")
 
     h = 1
     for _ in range(TQ3_LOG2_BLOCK):
@@ -80,6 +81,10 @@ def _pack_3bit(indices: torch.Tensor) -> torch.Tensor:
     Input: [..., 128] uint8 (values 0-7)
     Output: [..., 48] uint8
     """
+    if indices.shape[-1] != TQ3_BLOCK:
+        raise ValueError(
+            f"3-bit packing requires last dim {TQ3_BLOCK}, got {indices.shape[-1]}"
+        )
     shape_prefix = indices.shape[:-1]
     idx = indices.view(-1, TQ3_BLOCK).to(torch.int32)
     batch = idx.shape[0]
@@ -107,6 +112,8 @@ def _unpack_3bit(packed: torch.Tensor) -> torch.Tensor:
     Input: [..., 48] uint8
     Output: [..., 128] uint8
     """
+    if packed.shape[-1] != 48:
+        raise ValueError(f"3-bit unpacking requires last dim 48, got {packed.shape[-1]}")
     shape_prefix = packed.shape[:-1]
     p = packed.view(-1, 48).to(torch.int32)
     batch = p.shape[0]
@@ -136,9 +143,14 @@ def tq3_quantize(x: torch.Tensor) -> dict:
       - packed:  [..., D//128, 48] uint8 (packed 3-bit indices)
       - orig_shape: original shape
     """
-    assert x.shape[-1] % TQ3_BLOCK == 0, (
-        f"Last dim must be divisible by {TQ3_BLOCK}, got {x.shape[-1]}"
-    )
+    if not isinstance(x, torch.Tensor):
+        raise TypeError("tq3_quantize expects a torch.Tensor input.")
+    if x.ndim == 0:
+        raise ValueError("tq3_quantize expects at least one dimension.")
+    if x.shape[-1] <= 0 or x.shape[-1] % TQ3_BLOCK != 0:
+        raise ValueError(
+            f"Last dim must be a positive multiple of {TQ3_BLOCK}, got {x.shape[-1]}"
+        )
     device = x.device
     orig_shape = x.shape
     D = x.shape[-1]
@@ -184,10 +196,20 @@ def tq3_dequantize(tq3: dict) -> torch.Tensor:
     Input: dict from tq3_quantize
     Returns: tensor of original shape, float32
     """
+    required_keys = {"norms", "scales", "packed", "orig_shape"}
+    missing = required_keys.difference(tq3)
+    if missing:
+        missing_csv = ", ".join(sorted(missing))
+        raise KeyError(f"TQ3 payload missing required keys: {missing_csv}")
+
     norms = tq3["norms"]
     scales = tq3["scales"]
     packed = tq3["packed"]
     orig_shape = tq3["orig_shape"]
+    if norms.shape != scales.shape:
+        raise ValueError("TQ3 norms and scales must have identical shapes.")
+    if packed.shape[:-1] != norms.shape or packed.shape[-1] != 48:
+        raise ValueError("TQ3 packed indices shape must match norms/scales shape + [48].")
     device = norms.device
 
     centroids = TQ3_CENTROIDS.to(device)
@@ -220,7 +242,14 @@ def tq3_memory_bytes(shape: tuple) -> tuple:
     Calculate compressed memory usage.
     Returns (compressed_bytes, original_bytes, ratio).
     """
-    import math as _math
+    if not shape:
+        raise ValueError("shape must be non-empty")
+    if shape[-1] <= 0 or shape[-1] % TQ3_BLOCK != 0:
+        raise ValueError(
+            f"Last dim must be a positive multiple of {TQ3_BLOCK}, got {shape[-1]}"
+        )
+    if any(dim <= 0 for dim in shape):
+        raise ValueError(f"All shape dimensions must be positive, got {shape}")
 
     total_elements = 1
     for s in shape:

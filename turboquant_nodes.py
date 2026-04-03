@@ -2,12 +2,13 @@
 TurboQuant ComfyUI Nodes
 
 Two nodes:
-  1. TurboQuantPatch  - Patches a model to use TQ3-compressed KV cache
-  2. TurboQuantInfo   - Shows compression stats for a patched model
+  1. TurboQuantPatch  - Experimental attention K/V recompression patch
+  2. TurboQuantInfo   - Shows observed compression stats for a patched model
 """
 
 import torch
 import math
+from typing import Optional
 from . import tq3_core
 
 
@@ -57,12 +58,17 @@ class TQ3KVCacheWrapper:
         self._cache[key] = tq
 
         # Track stats
-        comp, orig, _ = tq3_core.tq3_memory_bytes(tensor_padded.shape)
-        self._stats["compressed_bytes"] += comp
-        self._stats["original_bytes"] += orig
+        compressed_bytes = (
+            tq["packed"].numel() * tq["packed"].element_size()
+            + tq["norms"].numel() * tq["norms"].element_size()
+            + tq["scales"].numel() * tq["scales"].element_size()
+        )
+        original_bytes = tensor.numel() * tensor.element_size()
+        self._stats["compressed_bytes"] += compressed_bytes
+        self._stats["original_bytes"] += original_bytes
         self._stats["num_stores"] += 1
 
-    def load(self, key: str) -> torch.Tensor:
+    def load(self, key: str) -> Optional[torch.Tensor]:
         """Decompress and return a KV tensor."""
         entry = self._cache.get(key)
         if entry is None:
@@ -104,7 +110,7 @@ class TQ3KVCacheWrapper:
             f"TurboQuant TQ3 KV Cache Stats\n"
             f"-----------------------------\n"
             f"Stores:      {self._stats['num_stores']}\n"
-            f"FP16 size:   {orig_mb:.1f} MB\n"
+            f"Original:    {orig_mb:.1f} MB\n"
             f"TQ3 size:    {comp_mb:.1f} MB\n"
             f"Ratio:       {ratio:.2f}x\n"
             f"Savings:     {self.savings_mb:.1f} MB"
@@ -171,10 +177,11 @@ def _make_attn_patch(wrapper: TQ3KVCacheWrapper):
 
 class TurboQuantPatch:
     """
-    Patches a model to use TQ3-compressed KV cache during attention.
+    Experimentally round-trips attention K/V tensors through TQ3 during attention.
 
-    This reduces peak VRAM usage of KV tensors by ~4.5x, enabling
-    larger models or longer sequences on the same GPU.
+    This does not yet replace ComfyUI's persistent KV cache. It is primarily
+    useful for validating TQ3 quality and measuring the observed compression
+    characteristics of the intermediate K/V tensors.
     """
 
     @classmethod
@@ -191,14 +198,15 @@ class TurboQuantPatch:
     FUNCTION = "patch"
     CATEGORY = "TurboQuant"
     DESCRIPTION = (
-        "Patches model attention to use TQ3-compressed KV cache. "
-        "Reduces KV VRAM by ~4.5x with minimal quality loss."
+        "Experimentally round-trips model attention K/V tensors through TQ3. "
+        "Useful for quality and compression experiments; not a persistent KV cache yet."
     )
 
     def patch(self, model, enabled):
         global _active_wrapper
 
         if not enabled:
+            _active_wrapper = None
             return (model,)
 
         wrapper = TQ3KVCacheWrapper(enabled=True)
@@ -218,10 +226,10 @@ class TurboQuantPatch:
 
 class TurboQuantInfo:
     """
-    Displays TurboQuant compression statistics.
+    Displays observed TurboQuant compression statistics.
 
-    Connect after TurboQuantPatch to see live compression ratio
-    and VRAM savings during generation.
+    Connect after TurboQuantPatch to see the cumulative compression ratio
+    and byte savings observed during generation.
     """
 
     @classmethod
@@ -237,7 +245,7 @@ class TurboQuantInfo:
     FUNCTION = "info"
     CATEGORY = "TurboQuant"
     OUTPUT_NODE = True
-    DESCRIPTION = "Shows TQ3 compression ratio and VRAM savings."
+    DESCRIPTION = "Shows observed TQ3 compression ratio and byte savings."
 
     def info(self, model):
         global _active_wrapper
