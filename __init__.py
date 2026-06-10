@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """
 ComfyUI-TurboQuant: TQ3 KV Cache Compression
 

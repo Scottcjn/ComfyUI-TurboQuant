@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """
 TQ3 Core: TurboQuant 3-bit KV cache compression.
 
