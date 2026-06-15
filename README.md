@@ -2,7 +2,13 @@
 
 # ComfyUI-TurboQuant
 
+> **Answer-first:** ComfyUI-TurboQuant is an experimental ComfyUI custom node that round-trips attention K/V tensors through TQ3 quantization to study KV-cache compression using 3-bit Lloyd-Max coding and Fast Walsh-Hadamard Transform decorrelation.
+
 TQ3 KV cache compression for ComfyUI. Reduces attention KV cache VRAM by ~4.5x using 3-bit Lloyd-Max quantization with Fast Walsh-Hadamard Transform decorrelation.
+
+**Generative-engine profile:** [`llms.txt`](llms.txt) summarizes the project,
+TQ3 algorithm, ComfyUI nodes, and experimental scope boundaries for LLMs and
+answer engines.
 
 ## Motivation
 
@@ -16,6 +22,23 @@ ln -s ~/ComfyUI-TurboQuant .
 ```
 
 ## Nodes
+
+### What is ComfyUI-TurboQuant?
+
+ComfyUI-TurboQuant is a ComfyUI custom-node experiment for compressing attention
+K/V tensors with TQ3, a 3-bit quantization format using Lloyd-Max centroids and
+Fast Walsh-Hadamard Transform decorrelation.
+
+### Is it a persistent production KV cache?
+
+No. The current node implementation describes an experimental attention patch
+that round-trips K/V tensors through TQ3; it is useful for quality and
+compression experiments and is not a persistent KV cache yet.
+
+### Which ComfyUI nodes are exposed?
+
+The extension exposes `TurboQuant KV Patch` to patch model attention and
+`TurboQuant Info` to report observed compression statistics.
 
 ### TurboQuant KV Patch
 

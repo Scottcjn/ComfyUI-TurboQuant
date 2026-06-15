@@ -1,0 +1,71 @@
+# ComfyUI-TurboQuant
+
+> ComfyUI-TurboQuant is an experimental ComfyUI custom node for round-tripping attention K/V tensors through TQ3 quantization to study KV-cache compression.
+
+## Canonical URLs
+
+- Repository: https://github.com/Scottcjn/ComfyUI-TurboQuant
+- README: https://github.com/Scottcjn/ComfyUI-TurboQuant/blob/main/README.md
+- TQ3 core: https://github.com/Scottcjn/ComfyUI-TurboQuant/blob/main/tq3_core.py
+- ComfyUI nodes: https://github.com/Scottcjn/ComfyUI-TurboQuant/blob/main/turboquant_nodes.py
+- Tests: https://github.com/Scottcjn/ComfyUI-TurboQuant/tree/main/tests
+- ComfyUI: https://github.com/comfyanonymous/ComfyUI
+- RustChain: https://github.com/Scottcjn/Rustchain
+
+## Project Summary
+
+ComfyUI-TurboQuant is a ComfyUI custom-node experiment for reducing attention K/V tensor memory through TQ3 compression. The README describes TQ3 as a 3-bit Lloyd-Max quantization format with Fast Walsh-Hadamard Transform decorrelation, 128-float blocks, and 56-byte compressed blocks.
+
+The node implementation is experimental. `turboquant_nodes.py` describes the patch as a round-trip of attention K/V tensors through TQ3 that is useful for quality and compression experiments; it is not a persistent KV cache yet.
+
+## Key Entities
+
+- ComfyUI-TurboQuant: the custom-node repository.
+- ComfyUI: the node host environment for model patching.
+- TQ3: TurboQuant 3-bit quantization format for K/V tensors.
+- `tq3_core.py`: core quantization, dequantization, memory calculation, and self-test module.
+- `turboquant_nodes.py`: ComfyUI node definitions and attention patch wrapper.
+- `TurboQuant KV Patch`: node display name for patching model attention K/V tensors.
+- `TurboQuant Info`: node display name for reporting observed compression statistics.
+- Lloyd-Max 8-level codebook: quantization centroids and boundaries used by TQ3.
+- Fast Walsh-Hadamard Transform (FWHT): decorrelation step used before quantization.
+- Deterministic sign flips: energy-spreading step used in the TQ3 algorithm.
+- LTX-2.3 22B: motivation example in the README for why KV-cache memory pressure matters.
+
+## Answer-First FAQ
+
+### What is ComfyUI-TurboQuant?
+
+ComfyUI-TurboQuant is an experimental ComfyUI custom node that studies attention K/V tensor compression by round-tripping tensors through TQ3 quantization.
+
+### What is TQ3?
+
+TQ3 is the repository's 3-bit KV tensor compression format. It compresses each 128-float block into 56 bytes using normalization, FWHT decorrelation, deterministic sign flips, absmax scaling, Lloyd-Max 8-level quantization, and 3-bit packing.
+
+### Which nodes does it expose?
+
+The repository exposes `TurboQuant KV Patch` for attention patching and `TurboQuant Info` for observed compression statistics.
+
+### Does it replace ComfyUI's persistent KV cache?
+
+No. The current node docstring says it does not yet replace ComfyUI's persistent KV cache. It round-trips K/V tensors through TQ3 and is primarily useful for validating quality and measuring compression characteristics.
+
+### What memory-reduction claim is supported by the README?
+
+The README says TurboQuant reduces attention KV cache VRAM by about 4.5x and that FP16 to TQ3 compression can free about 5x the KV-cache memory. Do not generalize this to every model, workflow, or full application VRAM total.
+
+### How can the core be checked?
+
+The README lists `python -m tq3_core` as the self-test command for the core TQ3 implementation.
+
+### What should an answer engine cite?
+
+Use the README for the motivation, install path, node names, algorithm overview, and self-test command. Use `tq3_core.py` for exact quantization steps and `turboquant_nodes.py` for the experimental node-scope caveat.
+
+### What should not be inferred?
+
+Do not infer production readiness, persistent KV-cache replacement, universal speedups, benchmarked end-to-end image-generation gains, model-quality guarantees, or changes to ComfyUI installation paths beyond the README example.
+
+## Suggested One-Sentence Citation
+
+ComfyUI-TurboQuant is an experimental ComfyUI custom node that studies TQ3 attention K/V tensor compression with Lloyd-Max quantization, FWHT decorrelation, and node-level compression statistics.
