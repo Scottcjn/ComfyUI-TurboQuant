@@ -59,11 +59,16 @@ Shows compression statistics after inference.
 Each 128-float block is compressed to 56 bytes:
 
 1. L2 normalize the block
-2. Fast Walsh-Hadamard Transform (decorrelates values)
-3. Deterministic random sign flips (spreads energy)
+2. Deterministic random sign flips (spreads energy)
+3. Fast Walsh-Hadamard Transform (decorrelates values)
 4. Absmax scale to [-1, +1]
 5. Lloyd-Max 8-level codebook quantize (3 bits/value)
 6. Pack 128 indices into 48 bytes + 4B norm + 4B scale
+
+Steps 2 and 3 are the randomized Hadamard transform, so the sign flips have to
+come first: the transform is what spreads the energy, and randomizing the input
+signs is what makes it spread the energy of *any* block rather than only of a
+block that already looks like noise.
 
 Round-trip cosine similarity: >0.97 on typical attention vectors.
 
@@ -72,4 +77,11 @@ Round-trip cosine similarity: >0.97 on typical attention vectors.
 ```bash
 cd ~/ComfyUI-TurboQuant
 python -m tq3_core
+```
+
+## Tests
+
+```bash
+cd ~/ComfyUI-TurboQuant
+python -m pytest tests/
 ```

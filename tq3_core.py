@@ -7,11 +7,20 @@ Compresses 128-float vectors to 56 bytes (3.5 bits/value):
 
 Algorithm:
   1. L2 normalize
-  2. Fast Walsh-Hadamard Transform (7 butterfly stages)
-  3. Deterministic random sign flips
+  2. Deterministic random sign flips
+  3. Fast Walsh-Hadamard Transform (7 butterfly stages)
   4. Absmax scale to [-1,+1]
   5. Lloyd-Max 8-level codebook quantize (3 bits per value)
   6. Pack 3-bit indices into bytes
+
+Steps 2 and 3 together form the randomized Hadamard transform: the signs must
+be applied *before* the transform, so that the transform spreads the block's
+energy no matter how the input is shaped. Flipping signs afterwards cannot
+spread anything -- absmax and a codebook symmetric about zero are both
+invariant under a sign flip, so a post-transform flip leaves the reconstruction
+bit-for-bit unchanged (the only exception being which of the two innermost
+centroids a coefficient of exactly 0.0 breaks its tie towards) while a
+low-frequency block stays collapsed into a single Hadamard coefficient.
 
 Round-trip quality target: cosine similarity > 0.97 for typical attention vectors.
 """
@@ -164,12 +173,10 @@ def tq3_quantize(x: torch.Tensor) -> dict:
     norms = torch.norm(xb, dim=-1, keepdim=True).clamp(min=1e-8)  # [..., num_blocks, 1]
     xn = xb / norms
 
-    # Step 2: FWHT
-    xh = _fwht_inplace(xn.clone())
-
-    # Step 3: Random sign flips
+    # Steps 2+3: randomized Hadamard transform. Signs first, then FWHT --
+    # that ordering is what decorrelates the block; see module docstring.
     signs = _generate_sign_flips(TQ3_BLOCK, seed=42, device=device)
-    xh = xh * signs
+    xh = _fwht_inplace((xn * signs).contiguous())
 
     # Step 4: Absmax scale
     scales = xh.abs().max(dim=-1, keepdim=True).values.clamp(min=1e-8)  # [..., num_blocks, 1]
@@ -224,12 +231,12 @@ def tq3_dequantize(tq3: dict) -> torch.Tensor:
     # Undo absmax scaling
     xq = xq * scales.unsqueeze(-1)
 
-    # Undo sign flips
+    # Inverse randomized Hadamard transform, in reverse order of tq3_quantize:
+    # inverse FWHT first (it is its own inverse here, since it is normalized),
+    # then undo the sign flips.
+    xq = _fwht_inplace(xq.contiguous())
     signs = _generate_sign_flips(TQ3_BLOCK, seed=42, device=device)
     xq = xq * signs
-
-    # Inverse FWHT (FWHT is its own inverse up to scaling, and we already normalized)
-    xq = _fwht_inplace(xq)
 
     # Undo L2 normalization
     xq = xq * norms.unsqueeze(-1)
@@ -290,7 +297,7 @@ def self_test():
     mse = ((x - xr) ** 2).mean().item()
     print(f"    Cosine similarity: {cos:.6f}")
     print(f"    MSE:               {mse:.6f}")
-    assert cos > 0.90, f"Cosine too low: {cos}"
+    assert cos > 0.97, f"Cosine too low: {cos}"
     print("    PASS")
 
     # Test 2: Batch of vectors (simulating KV cache)
@@ -306,7 +313,7 @@ def self_test():
     print(f"    FP16 size:    {orig:,} bytes")
     print(f"    TQ3 size:     {comp:,} bytes")
     print(f"    Compression:  {ratio:.2f}x")
-    assert cos > 0.90, f"Cosine too low: {cos}"
+    assert cos > 0.97, f"Cosine too low: {cos}"
     assert ratio > 4.0, f"Compression ratio too low: {ratio}"
     print("    PASS")
 
@@ -338,6 +345,26 @@ def self_test():
     print(f"    KV cache FP16: {orig / 1e9:.2f} GB")
     print(f"    KV cache TQ3:  {comp / 1e9:.2f} GB")
     print(f"    Savings:       {(orig - comp) / 1e9:.2f} GB ({ratio:.1f}x)")
+    print("    PASS")
+
+    # Test 6: Structured blocks. A block carrying an offset or low-frequency
+    # content concentrates into a few Hadamard coefficients unless the sign
+    # flips run before the transform, and then absmax scaling crushes the rest.
+    print("\n[6] Structured (non-Gaussian) blocks ...")
+    ramp = torch.linspace(0.0, 2 * math.pi, TQ3_BLOCK, device=device)
+    structured = {
+        "constant": torch.full((16, TQ3_BLOCK), 2.5, device=device),
+        "gaussian + DC offset": torch.randn(16, TQ3_BLOCK, device=device) + 3.0,
+        "low-frequency": torch.stack([torch.sin(ramp * (1 + i * 0.1)) for i in range(16)]),
+        "outlier channel": torch.randn(16, TQ3_BLOCK, device=device),
+    }
+    structured["outlier channel"][:, 7] = 40.0
+    for name, xs in structured.items():
+        xr = tq3_dequantize(tq3_quantize(xs))
+        cos = torch.nn.functional.cosine_similarity(xs, xr, dim=-1).mean().item()
+        rel = ((xs - xr).norm() / xs.norm()).item()
+        print(f"    {name:22} cosine {cos:.6f}   relative L2 error {rel:.4f}")
+        assert cos > 0.97, f"Cosine too low for {name}: {cos}"
     print("    PASS")
 
     print("\n" + "=" * 60)
