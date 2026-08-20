@@ -40,7 +40,7 @@ ComfyUI-TurboQuant is an experimental ComfyUI custom node that studies attention
 
 ### What is TQ3?
 
-TQ3 is the repository's 3-bit KV tensor compression format. It compresses each 128-float block into 56 bytes using normalization, FWHT decorrelation, deterministic sign flips, absmax scaling, Lloyd-Max 8-level quantization, and 3-bit packing.
+TQ3 is the repository's 3-bit KV tensor compression format. It compresses each 128-float block into 56 bytes using normalization, deterministic sign flips, FWHT decorrelation, absmax scaling, Lloyd-Max 8-level quantization, and 3-bit packing.
 
 ### Which nodes does it expose?
 

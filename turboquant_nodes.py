@@ -10,7 +10,10 @@ Two nodes:
 import torch
 import math
 from typing import Optional
-from . import tq3_core
+try:
+    from . import tq3_core
+except ImportError:  # imported as a top-level module rather than as a package
+    import tq3_core
 
 
 class TQ3KVCacheWrapper:
@@ -153,6 +156,13 @@ def _make_attn_patch(wrapper: TQ3KVCacheWrapper):
 
         step_counter[0] += 1
         step_id = step_counter[0]
+
+        # ComfyUI coerces a None context away before calling an attn1 patch
+        # (attention.py: "if context_attn1 is None: context_attn1 = n") but the
+        # attn2 path has no such guard, so k/v arrive as None whenever the block
+        # runs without conditioning. Pass those through untouched.
+        if k is None or v is None:
+            return q, k, v
 
         # Only compress if dim is >= 128 (otherwise overhead isn't worth it)
         if k.shape[-1] >= tq3_core.TQ3_BLOCK:
